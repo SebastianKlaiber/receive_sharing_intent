@@ -15,6 +15,7 @@ open class RSIShareViewController: SLComposeServiceViewController {
     var hostAppBundleIdentifier = ""
     var appGroupId = ""
     var sharedMedia: [SharedMediaFile] = []
+    private var isProcessing = false
 
     /// Override this method to return false if you don't want to redirect to host app automatically
     /// Default is true
@@ -31,17 +32,19 @@ open class RSIShareViewController: SLComposeServiceViewController {
         
         // load group and app id from build info
         loadIds()
-    }
-    
-    // Redirect to host app when user click on Post
-    open override func didSelectPost() {
-        saveAndRedirect(message: contentText)
+        
+        // Hide the navigation bar since we don't need the Post button
+        navigationController?.setNavigationBarHidden(true, animated: false)
     }
     
     open override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         
-        // This is called after the user selects Post. Do the upload of contentText and/or NSExtensionContext attachments.
+        // Only process once
+        guard !isProcessing else { return }
+        isProcessing = true
+        
+        // This is called after the view appears. Process the attachments immediately.
         if let content = extensionContext!.inputItems[0] as? NSExtensionItem {
             if let contents = content.attachments {
                 for (index, attachment) in (contents).enumerated() {
@@ -86,6 +89,9 @@ open class RSIShareViewController: SLComposeServiceViewController {
                         }
                     }
                 }
+            } else {
+                // No attachments, just save any text content and redirect
+                saveAndRedirect(message: contentText)
             }
         }
     }
