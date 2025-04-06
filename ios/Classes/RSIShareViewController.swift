@@ -15,6 +15,8 @@ open class RSIShareViewController: SLComposeServiceViewController {
     var hostAppBundleIdentifier = ""
     var appGroupId = ""
     var sharedMedia: [SharedMediaFile] = []
+    private var isProcessing = false
+    private var loadingLabel: UILabel?
 
     /// Override this method to return false if you don't want to redirect to host app automatically
     /// Default is true
@@ -31,60 +33,86 @@ open class RSIShareViewController: SLComposeServiceViewController {
         
         // load group and app id from build info
         loadIds()
-    }
-    
-    // Redirect to host app when user click on Post
-    open override func didSelectPost() {
-        saveAndRedirect(message: contentText)
+        
+        // Hide the navigation bar since we don't need the Post button
+        navigationController?.setNavigationBarHidden(true, animated: false)
+        
+        // Add loading label
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.text = "Opening App..."
+        label.textAlignment = .center
+        label.font = .systemFont(ofSize: 16, weight: .medium)
+        view.addSubview(label)
+        
+        // Center the label
+        NSLayoutConstraint.activate([
+            label.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: view.centerYAnchor)
+        ])
+        
+        self.loadingLabel = label
     }
     
     open override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         
-        // This is called after the user selects Post. Do the upload of contentText and/or NSExtensionContext attachments.
-        if let content = extensionContext!.inputItems[0] as? NSExtensionItem {
-            if let contents = content.attachments {
-                for (index, attachment) in (contents).enumerated() {
-                    for type in SharedMediaType.allCases {
-                        if attachment.hasItemConformingToTypeIdentifier(type.toUTTypeIdentifier) {
-                            attachment.loadItem(forTypeIdentifier: type.toUTTypeIdentifier) { [weak self] data, error in
-                                guard let this = self, error == nil else {
-                                    self?.dismissWithError()
-                                    return
+        // Only process once
+        guard !isProcessing else { return }
+        isProcessing = true
+        
+        // Add a small delay to show the loading text
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self = self else { return }
+            
+            // Process the attachments
+            if let content = self.extensionContext!.inputItems[0] as? NSExtensionItem {
+                if let contents = content.attachments {
+                    for (index, attachment) in (contents).enumerated() {
+                        for type in SharedMediaType.allCases {
+                            if attachment.hasItemConformingToTypeIdentifier(type.toUTTypeIdentifier) {
+                                attachment.loadItem(forTypeIdentifier: type.toUTTypeIdentifier) { [weak self] data, error in
+                                    guard let this = self, error == nil else {
+                                        self?.dismissWithError()
+                                        return
+                                    }
+                                    switch type {
+                                    case .text:
+                                        if let text = data as? String {
+                                            this.handleMedia(forLiteral: text,
+                                                             type: type,
+                                                             index: index,
+                                                             content: content)
+                                        }
+                                    case .url:
+                                        if let url = data as? URL {
+                                            this.handleMedia(forLiteral: url.absoluteString,
+                                                             type: type,
+                                                             index: index,
+                                                             content: content)
+                                        }
+                                    default:
+                                        if let url = data as? URL {
+                                            this.handleMedia(forFile: url,
+                                                             type: type,
+                                                             index: index,
+                                                             content: content)
+                                        }
+                                        else if let image = data as? UIImage {
+                                            this.handleMedia(forUIImage: image,
+                                                             type: type,
+                                                             index: index,
+                                                             content: content)
+                                        }
+                                    }
                                 }
-                                switch type {
-                                case .text:
-                                    if let text = data as? String {
-                                        this.handleMedia(forLiteral: text,
-                                                         type: type,
-                                                         index: index,
-                                                         content: content)
-                                    }
-                                case .url:
-                                    if let url = data as? URL {
-                                        this.handleMedia(forLiteral: url.absoluteString,
-                                                         type: type,
-                                                         index: index,
-                                                         content: content)
-                                    }
-                                default:
-                                    if let url = data as? URL {
-                                        this.handleMedia(forFile: url,
-                                                         type: type,
-                                                         index: index,
-                                                         content: content)
-                                    }
-                                    else if let image = data as? UIImage {
-                                        this.handleMedia(forUIImage: image,
-                                                         type: type,
-                                                         index: index,
-                                                         content: content)
-                                    }
-                                }
+                                break
                             }
-                            break
                         }
                     }
+                } else {
+                    // No attachments, just save any text content and redirect
+                    self.saveAndRedirect(message: self.contentText)
                 }
             }
         }
